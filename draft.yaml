@@ -1,0 +1,200 @@
+tosca_definitions_version: cloudify_dsl_1_0
+
+imports:
+  - http://www.getcloudify.org/spec/cloudify/3.3m4/types.yaml
+  - https://raw.githubusercontent.com/buhanec/cloudify-chef-plugin/master/plugin.yaml?v=2
+  - https://raw.githubusercontent.com/buhanec/cloudify-flexiant-plugin/master/plugin.yaml?v=5
+
+inputs:
+  chef_version: {}
+  chef_server: {}
+  chef_validation_user: {}
+  chef_validation_key: {}
+  fco_api_uuid: {}
+  fco_password: {}
+  fco_customer: {}
+  fco_url: {}
+  fco_ca_cert: {}
+  fco_image: {}
+  fco_network: {}
+  fco_server_type: {}
+  fco_cpu_count: {}
+  fco_ram_amount: {}
+  fco_key_uuid: {}
+
+node_types:
+  fco_instance:
+    derived_from: cloudify.flexiant.nodes.Server
+    properties:
+      auth:
+        default:
+          api_uuid: { get_input: fco_api_uuid }
+          password: { get_input: fco_password }
+          customer: { get_input: fco_customer }
+          url: { get_input: fco_url }
+          ca_cert: { get_input: fco_ca_cert }
+      image_uuid:
+        default: { get_input: fco_image }
+      net_uuid:
+        default: { get_input: fco_network }
+      server_type:
+        default: { get_input: fco_server_type }
+      cpu_count:
+        default: { get_input: fco_cpu_count }
+      ram_amount:
+        default: { get_input: fco_ram_amount }
+      key_uuid:
+        default: { get_input: fco_key_uuid }
+      cloudify_agent:
+        default:
+          wait_started_timeout: 60
+          wait_started_interval: 3
+
+  chef_node:
+    derived_from: cloudify.chef.nodes.ApplicationServer
+    properties:
+      version:
+        default: { get_input: chef_version }
+      chef_server_url:
+        default: { get_input: chef_server }
+      environment:
+        default: '_default'
+      validation_client_name:
+        default: { get_input: chef_validation_user }
+      validation_key:
+        default: { get_input: chef_validation_key }
+      node_name_prefix:
+        default: ''
+      node_name_suffix:
+        default: '.fco'
+      attributes:
+        default: 'templates/chef_attributes.json'
+      runlists:
+        default:
+          configure: { get_property: [SELF, chef_cookbooks] }
+      chef_cookbooks:
+        default: []
+
+  config:
+    derived_from: cloudify.nodes.Root
+    properties:
+      config:
+        default: {}
+
+relationships:
+  config_in_master:
+    derived_from: cloudify.relationships.contained_in
+    source_interfaces:
+      cloudify.interfaces.relationship_lifecycle:
+        preconfigure: relationships/config_in_master.py
+
+  config_on_worker:
+    derived_from: cloudify.relationships.depends_on
+    source_interfaces:
+      cloudify.interfaces.relationship_lifecycle:
+        preconfigure: relationships/config_on_worker.py
+
+  stack_on_config:
+    derived_from: cloudify.relationships.depends_on
+    target_interfaces:
+      cloudify.interfaces.relationship_lifecycle:
+        preconfigure: relationships/stack_on_config.py
+
+  oryx_on_master:
+    derived_from: cloudify.relationships.depends_on
+    source_interfaces:
+      cloudify.interfaces.relationship_lifecycle:
+        preconfigure: relationships/oryx_on_master.py
+
+node_templates:
+  oryx:
+    type: cloudify.nodes.ApplicationServer
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        create: 'scripts/create_oryx.sh'
+        configure: 'scripts/configure_oryx.py'
+        start: 'scripts/start_oryx.sh'
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: master
+      - type: oryx_on_master
+        target: master_stack
+      - type: cloudify.relationships.depends_on
+        target: worker_stack
+
+  master_stack:
+    type: chef_node
+    properties:
+      chef_cookbooks:
+        - 'recipe[apt::default]'
+        - 'recipe[java::default]'
+        - 'recipe[hadoop::hadoop_hdfs_namenode]'
+        - 'recipe[hadoop::hadoop_yarn_resourcemanager]'
+        - 'recipe[hadoop::hadoop_mapreduce_historyserver]'
+        - 'recipe[hadoop::zookeeper_server]'
+        - 'recipe[hadoop::spark_master]'
+        - 'recipe[apache_kafka::default]'
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        create: 'scripts/fix_fqdn.py'
+        start: 'scripts/start_master_stack.sh'
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: master
+      - type: stack_on_config
+        target: config
+
+  worker_stack:
+    type: chef_node
+    properties:
+      chef_cookbooks:
+        - 'recipe[apt::default]'
+        - 'recipe[java::default]'
+        - 'recipe[hadoop::hadoop_hdfs_datanode]'
+        - 'recipe[hadoop::hadoop_yarn_nodemanager]'
+        - 'recipe[hadoop::zookeeper_server]'
+        - 'recipe[hadoop::spark_worker]'
+        - 'recipe[apache_kafka::default]'
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        create: 'scripts/fix_fqdn.py'
+        start: 'scripts/start_worker_stack.sh'
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: worker
+      - type: stack_on_config
+        target: config
+
+  config:
+    type: config
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        create: scripts/create_config.py
+        configure: scripts/configure_config.py
+    relationships:
+      - type: config_in_master
+        target: master
+      - type: config_on_worker
+        target: worker
+
+  worker:
+    type: fco_instance
+    instances:
+      deploy: 10
+
+  master:
+    type: fco_instance
+
+outputs:
+  master_fqdn:
+    description: 'Master FQDN'
+    value: { get_attribute: [config, master_fqdn] }
+  worker_fqdns:
+    description: 'Worker FQDNs'
+    value: { get_attribute: [config, worker_fqdns] }
+  master_ip:
+    description: 'Master IP'
+    value: { get_attribute: [config, master_ip] }
+  worker_ips:
+    description: 'Worker IPs'
+    value: { get_attribute: [config, worker_ips] }

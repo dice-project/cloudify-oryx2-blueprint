@@ -1,0 +1,98 @@
+{
+  "zookeeper": {
+    "zoocfg": {
+       "tickTime": 2000,
+       "initLimit": 10,
+       "syncLimit": 5,
+       "clietPort": 2181,
+       {% for fqdn in zoo_fqdns %}
+       "server.{{ loop.index }}": "{{ fqdn }}:2888:3888",
+       {% endfor %}
+       "dataDir": "/var/lib/zookeeper"
+    }
+  },
+  "apache_kafka": {
+    "broker.id": "{{ broker_id }}",
+    "port": 9092,
+    "install_java": false,
+    "zookeeper.connect": "{{ zookeeper_fqdns|join(',') }}",
+    "conf": {
+      "server": {
+        "file": "server.properties",
+        "entries": {
+          "delete.topic.enable": true
+        }
+      },
+      "log4j": {
+        "file": "log4j.properties",
+        "entries": {
+          "log4j.appender.cleanerAppender.File": "${kafka.logs.dir}/log-cleaner.log"
+        }
+      }
+    }
+  },
+  "hadoop": {
+    "core_site": {
+      "hadoop.proxyuser.mapred.groups": "*",
+      "hadoop.proxyuser.mapred.hosts": "*",
+      "dfs.permissions.superusergroup": "hadoop",
+      "dfs.permissions": false,
+      "fs.defaultFS": "hdfs://{{ master_fqdn }}"
+    },
+    "mapred_site": {
+      "mapreduce.jobhistory.address": "{{ master_fqdn }}:10020",
+      "mapreduce.reduce.cpu.vcores": 1,
+      "mapreduce.map.java.opts": "-Xmx768m",
+      "mapreduce.jobhistory.webapp.address": "{{ master_fqdn }}:19888",
+      "yarn.app.mapreduce.am.resource.mb": 512,
+      "mapreduce.map.memory.mb": 512,
+      "mapreduce.reduce.java.opts": "-Xmx768m",
+      "yarn.app.mapreduce.am.command-opts": "-Xmx768m",
+      "mapreduce.framework.name": "yarn",
+      "mapreduce.reduce.memory.mb": 512,
+      "yarn.app.mapreduce.am.staging-dir": "/user",
+      "mapred.job.tracker": "{{ master_fqdn }}:9001",
+      "mapreduce.map.cpu.vcores": 1
+    },
+    "distribution": "cdh",
+    "yarn_site": {
+      "yarn.resourcemanager.hostname": "{{ master_fqdn }}",
+      "yarn.application.classpath": "$HADOOP_CONF_DIR, $HADOOP_COMMON_HOME/*, $HADOOP_COMMON_HOME/lib/*, $HADOOP_HDFS_HOME/*, $HADOOP_HDFS_HOME/lib/*, $HADOOP_MAPRED_HOME/*, $HADOOP_MAPRED_HOME/lib/*, $HADOOP_YARN_HOME/*, $HADOOP_YARN_HOME/lib/*",
+      "yarn.nodemanager.aux-services": "mapreduce_shuffle",
+      "yarn.log.aggregation-enable": true,
+      "yarn.nodemanager.remote-app-log-dir": "hdfs://{{ master_fqdn }}:8020/var/log/hadoop-yarn/apps",
+      "yarn.nodemanager.log-dirs": "/var/lib/hadoop-yarn/logs",
+      "yarn.nodemanager.local-dirs": "/var/lib/hadoop-yarn/data"
+    },
+    "distribution_version": "5.4.4",
+    "hdfs_site": {
+      "dfs.replication": 1,
+      "dfs.permissions": false,
+      "dfs.data.dir": "file:///var/lib/hadoop-hdfs/name/data",
+      "dfs.name.dir": "file:///var/lib/hadoop-hdfs/name"
+    },
+    "hadoop_env": {
+      "HADOOP_CONF_DIR": "/etc/hadoop/conf",
+      "HADOOP_OPTS": "-Djava.net.preferIPv4Stack=true ${HADOOP_OPTS}",
+      "JAVA_HOME": "/usr/lib/jvm/default-java"
+    }
+  },
+  "apt": {
+    "compile_time_update": true
+  },
+  "java": {
+    "accept_license_agreement": true,
+    "jdk_version": 7
+  },
+  "spark": {
+    "spark_defaults": {
+      "spark.eventLog.dir": "hdfs://{{ master_fqdn }}:8020/user/spark/applicationHistory",
+      "spark.yarn.historyServer.address": "{{ master_fqdn }}:10020",
+      "spark.eventLog.enabled": true
+    },
+    "spark_env": {
+      "standalone_spark_master_host": "{{ master_fqdn }}",
+      "spark_master_ip": "{{ master_fqdn }}"
+    }
+  }
+}
