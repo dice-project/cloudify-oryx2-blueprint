@@ -5,11 +5,32 @@ An example draft of an Oryx2 blueprint, making used of the [Cloudify Flexiant Pl
 
 Serves to automatically set up the entire stack required for Oryx2, and Oryx2 itself, as well as a general template for any complex Chef-based future blueprints.
 
-Input/Chef Preparations for Installation
-----------------------------------------
+Deployment Components/Result
+----------------------------
 
+A deployment based on this blueprint should create, if mostly left unchanged, 1 master server and 10 worker/slave servers.
 
-### Inputs
+The master server would contain:
+
+* A Hadoop "master" stack (NameNode, ResourceManager, HistoryServer)
+* Spark Master
+* Zookeeper
+* Kafka
+* Entirety of Oryx2
+
+The worker servers would contain:
+
+* A Hadoop "worker/slave" stack (DataNode, NodeManager)
+* Spark Worker
+* Zookeeper
+* Kafka
+
+Visually, the deployment's nodes could be grouped and represented as:
+
+![Node Topology](https://i.imgur.com/xyWCMii.png)
+
+Blueprint Inputs
+----------------
 
 The inputs currently expose the Chef configuration and assume a Chef Server/Client combination is used, and the Flexiant plugin inputs. Currently no Oryx2 configuration details can be changed through the inputs. An example inputs file would be:
 
@@ -40,62 +61,58 @@ Make sure the Chef server has all the required cookbooks and their dependencies 
 * `hadoop`
 * `apache_kafka`
 
-For any modifications to the Chef provisioning, look at the sections below.
+For any modifications to the Chef provisioning, look at the finals sections of this README. These relate to the [customised `cloudify-chef-plugin`](https://github.com/buhanec/cloudify-chef-plugin) made for this blueprint.
 
-### Preparing the Chef Provisioning
+The Installation Workflow
+-------------------------
 
-Just like any Chef-based template for Cloudify's Chef Plugin, it requires some [documented preparations](http://getcloudify.org/guide/3.2/plugin-chef.html). However, since a modified plugin is used, a few key differences exist:
+When the Cloudify installation workflow is execute, the following order of operations is taken:
 
-1. Chef node properties can be grouped under a common `chef_config` key, however they can be each used as a top-level property on their own, which is recommended. This allows for better inheritance and partial changes (e.g. changing just one value requires only one new property instead of an entire new `chef_config` mapping.
-2. Attributes can be passed as a `json` or `yaml` template file, using [Jinja](http://jinja.pocoo.org/) templating. More information on this can be found under templating.
-3. Chef config can be mirrored in runtime properties / attributes and any such runtime-created config will have precedence of statically defined node configurations.
-
-### Chef Configuration and Runtime Properties
-
-Due to Oryx2 requiring a dynamic Chef configuration, such as including a mapping with unique IDs for every instance in the system, templating and runtime properties were introduced in the modified Chef plugin. The idea is to allow nodes to reconfigure themselves or each other based on dynamically changing properties, and thus eliminate the need for manual changes that would clash with Chef's own provisioning.
- 
-Under the current revision of the Chef plugin, which is closely tied to this blueprint, the Chef node config (which includes the Chef attributes) is malleable at every stage of the blueprint's deployment's lifetime. Whenever the Chef plugin runs it will construct a new Chef node configuration (and consequentially new Chef attributes) based on the node and runtime properties at the time of running.
-  
-The chef config is constructed with the following order of precedence:
-
-1. Runtime properties: being the most dynamic, they are use as dynamic "overrides" for default settings.
-2. Properties defined at the root node property level: this eases inheritance and allows for static "overrides" of any default setings.
-3. Properties defined under the common `chef_config` key: this allows for backward compatibility and for potentially isolating a "common config" which can be overwritten on a per-entry basis using top-level properties.
-
-### Chef Templating
-
-Whenever the Chef plugin runs, it also constructs the required Chef attributes. These can be now specified as a path to a `json` or `yaml` file, which will be loaded and templated. Using such a template introduced several advantages, the most notable being able to dynamically fine-tune any aspect of the Chef installation.
-
-For information on how the templating works, refer to the [Jinja documentation](http://jinja.pocoo.org/docs/dev/). The base `dict` provided to the templating engine are the runtime properties, meaning an entry such as `{{ server_ip }}` will refer to the current node's `runtime_properties.server_ip` entry. Additionally the entire context is added to the templating `dict` with the `ctx` key, meaning virtually any aspect of the blueprint can be referenced.
-
-A few examples include:
-* `{{ varname }}` - references current node's `runtime_properties.varname`
-* `{{ ctx.instance.runtime_properties.varname }}` - references the same variable as `{{ varname }}`
-* `{{ ctx.node.properties.varname }}` - references a statically-defined property with the top-level key `varname` of the node given in the blueprint
-* `{{ zookeeper_fqdns|join(',') }}` - creates a comma-delimited list entry from the node's `runtime_properties.zookeeper_fqdns` entry, which is a `list` (or any other json-serializable iterable)
-
-A feature that would have been extremely hard to implement without the custom plugin is for example:
-```
-{% for fqdn in zoo_fqdns %}
-    "server.{{ loop.index }}": "{{ fqdn }}:2888:3888",
-{% endfor %}
-```
-This assigns unique IDs to FQDNs as seperate entries in a `json` Chef attributes template.
-
-A note regarding the `ctx` entry and Chef operations during relationships - `ctx.instance` and `ctx.node` have to be references as `ctx.source.instance` (replacing `instance` with `node` and `source` with `target` where relevant).
+1. Provisioning Server instances
+    * The first step is to provision the `master` server and a given number of `worker` servers. Since they have no relationships to each other this is done in parallel.
+    * Although their type is currently commonly defined as `fco_instance`, they could be have been directly configured `cloudify.flexiant.nodes.Server` nodes, with separate configurations
+    * The number of worker instances should be set here an not under the stack node, as explained in the [Cloudify Documentation](http://getcloudify.org/guide/3.2/dsl-spec-relationships.html)
+2. Creating the `config` node
+    * As the `config` node depends on both the `master` and `worker` nodes, and other nodes depend on it, it is set up next.
+    * Using a file lock on the `master` node it atomically attempts to update its runtime properties with details of the `master` and `worker` nodes
+    * After all the details are collected it generates all the entries required for the other nodes and stores them in its own runtime properties
+3. Chef provisioning
+    * As the `master_stack` and `worker_stack` have their dependencies on the `master`, `worker` and `config` nodes met, they are simultaneously set up next.
+    * Before the Chef plugin is run, all the runtime properties from `config` node are copied over
+    * During the Chef provisioning, runtime properties that were copied over are used to populate the template properly
+    * Once the provisioning is done, final tweaks are applied and the services run
+4. Oryx2 setup
+    * As `oryx` depends on the `master_stack` and `worker_stack` to complete, it is set up last
+    * First, relevant files are acquired
+    * Secondly, templating and configuration is done
+    * Finally, Oryx2 is run
 
 Required Blueprint Modifications
 --------------------------------
 
-Any modifications to the Chef attributes can be done by modifying `templates/chef_attributes.json`. Almost all configuration files and other aspects of the Hadoop stack can be changed here, and should be changed here in case Chef is ever run again. Any changes to environment variables or relevant paths has to be mirrored in `resournces/compute-classpath.sh` and in the creations/configuration scripts in the `scripts` directory.
+Modifications to the blueprint take place on two main levels: either as topological changes by modifying the types, number or properties of nodes, or on the Chef configuration level which determines the Chef cookbooks to be included and the Chef attributes to be used during the cookbook setup.
 
-Any modifications to the Oryx2 configuration can be done by modifying `templates/oryx.conf`, `resources/compute-classpath.sh`, and modifying the creation/configuration scripts in the `scripts` directory. 
+### Blueprint Modifications
+
+When performing blueprint modifications it is most important to understand that references to nodes and their properties/runtime properties is not reflected merely in `draft.yaml`, but has significant effects on the relationship and configuration scripts. These often reference various properties and care must be taken to propagate changes across all these files.
+
+Generally all the scripts are run with the [Script Plugin](http://getcloudify.org/guide/3.2/plugin-script.html), which accesses the Cloudify context using the `ctx` context object in Python scripts or the `ctx` command in shell (`bash`) scripts.
+
+Another important factor is the ordering of operations and their (lack of) atomicity which is sometimes required. Testing has shown the most reliable way to ensure some form of atomic updates is forcing updates to be done atomically, which requiers the use of file locks. This means that operations that have to be performed simultaneously need to be performed on the same instance.
+
+Finally it is uesful to understand the ordering of operations in the [Built-in Workflows](http://getcloudify.org/guide/3.2/workflows-built-in.html).
+
+### Chef Attributes Modifications
+
+Any modifications to the Chef attributes can be done by modifying `templates/chef_attributes.json`. Almost all configuration files and other aspects of the Hadoop stack can be changed here, and should be changed here in case Chef is ever run again. Any changes to environment variables or relevant paths have to be mirrored in `resournces/compute-classpath.sh` and in the creation/configuration scripts in the `scripts` directory.
+
+Any modifications to the Oryx2 configuration can be done by modifying `templates/oryx.conf`, `resources/compute-classpath.sh`, and modifying the creation/configuration scripts in the `scripts` directory.
 
 For safety reasons the key pair `hdfs.pem` and `hdfs.pem.pub` in `resources` should be recreated.
 
-Additional parametrisation can be done by referencing properties of nodes, which can be exposed as blueprint inputs.
+### Example Modifications: Parametrising Worker Java Versions
 
-### Example Parametrisation: Different Worker Java Versions
+Since the blueprint offers no configurable parameters regarding Chef's attributes, this section services to show how Chef attributes can be exposed as input parameters by referencing properties of nodes.
 
 Note: this is untested and as such do not mindlessly copy-paste the snippets, however follow the logic of the operations and correctly modify the blueprint.
 
@@ -251,7 +268,7 @@ Note: this is untested and as such do not mindlessly copy-paste the snippets, ho
     ...
     ```
 
-7. Add `java_version_1` and `java_version_2` to the inputs:
+7. Add `java_version_1` and `java_version_2` to the inputs file:
 
     ```yaml
     java_version_1: 7
@@ -264,27 +281,50 @@ Note: this is untested and as such do not mindlessly copy-paste the snippets, ho
      ...
      ```
 
-The Installation Workflow
--------------------------
+Modified Chef Plugin
+--------------------
 
-1. Provisioning Server instances
-    * The first step is to provision the `master` server and a given number of `worker` servers. Since they have no relationships to each other this is done in parallel.
-    * Although their type is currently commonly defined as `fco_instance`, they could be have been directly configured `cloudify.flexiant.nodes.Server` nodes, with separate configurations
-    * The number of worker instances should be set here an not under the stack node
-2. Creating the `config` node
-    * As the `config` node depends on both the `master` and `worker` nodes, and other nodes depend on it, it is set up next.
-    * Using a file lock on the `master` node it atomically attempts to update its runtime properties with details of the `master` and `worker` nodes
-    * After all the details are collected it generates all the entries required for the other nodes in its runtime properties
-3. Chef profisioning
-    * As the `master_stack` and `worker_stack` have their dependencies on the `master`, `worker` and `config` nodes met, they are simultaneously set up next.
-    * Before the Chef plugin is run, all the runtime properties from `config` node are copied over
-    * During the Chef provisioning, runtime properties that were copied over are used to populate the template properly
-    * Once the provisioning is done, final tweaks are applied and the services run
-4. Oryx2 setup
-    * Finally, as `oryx` depends on the `master_stack` and `worker_stack` to complete, it is set up last
-    * First, relevant files are acquired
-    * Secondly, templating and configuration is done
-    * Finally, Oryx2 is run
-    
+### Preparing the Chef Provisioning
 
-    
+Just like any Chef-based template for Cloudify's Chef Plugin, it requires some [documented preparations](http://getcloudify.org/guide/3.2/plugin-chef.html). However, since a modified plugin is used, a few key differences exist:
+
+1. Chef node properties can be grouped under a common `chef_config` key, however they can be each used as a top-level property on their own, which is recommended. This allows for better inheritance and partial changes (e.g. changing just one value requires only one new property instead of an entire new `chef_config` mapping.
+2. Attributes can be passed as a `json` or `yaml` template file, using [Jinja](http://jinja.pocoo.org/) templating. More information on this can be found under templating.
+3. Chef config can be mirrored in runtime properties / attributes and any such runtime-created config will have precedence of statically defined node configurations.
+
+### Chef Configuration and Runtime Properties
+
+Due to Oryx2 requiring a dynamic Chef configuration, such as including a mapping with unique IDs for every instance in the system, templating and runtime properties were introduced in the modified Chef plugin. The idea is to allow nodes to reconfigure themselves or each other based on dynamically changing properties, and thus eliminate the need for manual changes that would clash with Chef's own provisioning.
+ 
+Under the current revision of the Chef plugin, which is closely tied to this blueprint, the Chef node config (which includes the Chef attributes) is malleable at every stage of the blueprint's deployment's lifetime. Whenever the Chef plugin runs it will construct a new Chef node configuration (and consequentially new Chef attributes) based on the node and runtime properties at the time of running.
+  
+The chef config is constructed with the following order of precedence:
+
+1. Runtime properties: being the most dynamic, they are use as dynamic "overrides" for default settings.
+2. Properties defined at the root node property level: this eases inheritance and allows for static "overrides" of any default setings.
+3. Properties defined under the common `chef_config` key: this allows for backward compatibility and for potentially isolating a "common config" which can be overwritten on a per-entry basis using top-level properties.
+
+For better clarification: [the relevant config generation function](https://github.com/buhanec/cloudify-chef-plugin/blob/0f64ac2888bbc44cdf495c0abe128505a4de45f1/chef_plugin/chef_client.py#L83-L113).
+
+### Chef Templating
+
+Whenever the Chef plugin runs, it also constructs the required Chef attributes. These can be now specified as a path to a `json` or `yaml` file, which will be loaded and templated. Using such a template introduced several advantages, the most notable being able to dynamically fine-tune any aspect of the Chef installation.
+
+For information on how the templating works, refer to the [Jinja documentation](http://jinja.pocoo.org/docs/dev/). The base `dict` provided to the templating engine are the runtime properties, meaning an entry such as `{{ server_ip }}` will refer to the current node's `runtime_properties.server_ip` entry. Additionally the entire context is added to the templating `dict` with the `ctx` key, meaning virtually any aspect of the blueprint/deployment can be referenced.
+
+A few examples include:
+* `{{ varname }}` - references current node's `runtime_properties.varname`
+* `{{ ctx.instance.runtime_properties.varname }}` - references the same variable as `{{ varname }}` in non-relationship operations
+* `{{ ctx.source.instance.runtime_properties.varname }}` - references the same variable as `{{ varname }}` in relationship operations
+* `{{ ctx.node.properties.varname }}` - references a statically-defined property with the top-level key `varname` of the node given in the blueprint in non-relationship operations
+* `{{ zookeeper_fqdns|join(',') }}` - creates a comma-delimited list entry from the node's `runtime_properties.zookeeper_fqdns` entry, which is a `list` (or any other json-serializable iterable)
+
+A feature that would have been extremely hard to implement without the custom plugin is for example:
+```
+{% for fqdn in zoo_fqdns %}
+    "server.{{ loop.index }}": "{{ fqdn }}:2888:3888",
+{% endfor %}
+```
+This assigns unique IDs to FQDNs as separate entries in a `json` Chef attributes template.
+
+A note regarding the `ctx` entry and Chef operations during relationships - `ctx.instance` and `ctx.node` have to be references as `ctx.source.instance` (replacing `instance` with `node` and `source` with `target` where relevant).
