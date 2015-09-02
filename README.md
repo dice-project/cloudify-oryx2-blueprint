@@ -1,7 +1,7 @@
 Cloudify Oryx2 Flexiant Blueprint
 =================================
 
-An example draft of an Oryx2 blueprint, making used of the [Cloudify Flexiant Plugin](https://github.com/buhanec/cloudify-flexiant-plugin). Additionally it requires the modified [Chef Plugin with templating](https://github.com/buhanec/cloudify-chef-plugin). 
+An example draft of an Oryx2 blueprint, making used of the [Cloudify Flexiant Plugin](https://github.com/buhanec/cloudify-flexiant-plugin). Additionally it requires the modified [Chef Plugin with templating](https://github.com/buhanec/cloudify-chef-plugin).
 
 Serves to automatically set up the entire stack required for Oryx2, and Oryx2 itself, as well as a general template for any complex Chef-based future blueprints.
 
@@ -29,8 +29,8 @@ Visually, the deployment's nodes could be grouped and represented as:
 
 ![Node Topology](https://i.imgur.com/xyWCMii.png)
 
-Blueprint Inputs
-----------------
+Blueprint Inputs & Preparation
+------------------------------
 
 The inputs currently expose the Chef configuration and assume a Chef Server/Client combination is used, and the Flexiant plugin inputs. Currently no Oryx2 configuration details can be changed through the inputs. An example inputs file would be:
 
@@ -62,6 +62,8 @@ Make sure the Chef server has all the required cookbooks and their dependencies 
 * `apache_kafka`
 
 For any modifications to the Chef provisioning, look at the finals sections of this README. These relate to the [customised `cloudify-chef-plugin`](https://github.com/buhanec/cloudify-chef-plugin) made for this blueprint.
+
+Finally make sure to generate the private/public key pair for the HDFS users. This can be done using the `ssh-keygen` command, the expected file paths are `<blueprint_directory>/resources/hdfs.pem` and `<blueprint_directory>/resources/hdfs.pem.pub`.
 
 The Installation Workflow
 -------------------------
@@ -179,7 +181,7 @@ Note: this is untested and as such do not mindlessly copy-paste the snippets, ho
             target: worker_1
           - type: stack_on_config
             target: config
-    
+
       worker_stack_2:
         type: chef_node
         properties:
@@ -295,9 +297,9 @@ Just like any Chef-based template for Cloudify's Chef Plugin, it requires some [
 ### Chef Configuration and Runtime Properties
 
 Due to Oryx2 requiring a dynamic Chef configuration, such as including a mapping with unique IDs for every instance in the system, templating and runtime properties were introduced in the modified Chef plugin. The idea is to allow nodes to reconfigure themselves or each other based on dynamically changing properties, and thus eliminate the need for manual changes that would clash with Chef's own provisioning.
- 
+
 Under the current revision of the Chef plugin, which is closely tied to this blueprint, the Chef node config (which includes the Chef attributes) is malleable at every stage of the blueprint's deployment's lifetime. Whenever the Chef plugin runs it will construct a new Chef node configuration (and consequentially new Chef attributes) based on the node and runtime properties at the time of running.
-  
+
 The chef config is constructed with the following order of precedence:
 
 1. Runtime properties: being the most dynamic, they are use as dynamic "overrides" for default settings.
