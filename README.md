@@ -63,7 +63,7 @@ Make sure the Chef server has all the required cookbooks and their dependencies 
 
 For any modifications to the Chef provisioning, look at the finals sections of this README. These relate to the [customised `cloudify-chef-plugin`](https://github.com/buhanec/cloudify-chef-plugin) made for this blueprint.
 
-Finally make sure to generate the private/public key pair for the HDFS users. This can be done using the `ssh-keygen` command, the expected file paths are `<blueprint_directory>/resources/hdfs.pem` and `<blueprint_directory>/resources/hdfs.pem.pub`.
+Finally make sure to generate the private/public key pair for the HDFS users. This can be done using the `ssh-keygen` command, the expected file paths are `<blueprint_directory>/resources/hdfs.pem` and `<blueprint_directory>/resources/hdfs.pem.pub`. These files have to me readable by everyone in order to be accessible during the installation procedure.
 
 The Installation Workflow
 -------------------------
