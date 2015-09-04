@@ -94,5 +94,17 @@
       "standalone_spark_master_host": "{{ master_fqdn }}",
       "spark_master_ip": "{{ master_fqdn }}"
     }
+  },
+  "collectd": {
+    "version": "5.4.1",
+    "url": "https://s3.amazonaws.com/collectd-5.4.1/collectd-5.4.1.tar.gz",
+    "plugins": {
+      "interface": {
+        "config": {
+          "Interface": "lo",
+          "IgnoreSelected": true
+        }
+      }
+    }
   }
 }

@@ -2,8 +2,8 @@ tosca_definitions_version: cloudify_dsl_1_0
 
 imports:
   - http://www.getcloudify.org/spec/cloudify/3.3m4/types.yaml
-  - https://raw.githubusercontent.com/buhanec/cloudify-chef-plugin/master/plugin.yaml?v=2
-  - https://raw.githubusercontent.com/buhanec/cloudify-flexiant-plugin/master/plugin.yaml?v=5
+  - https://raw.githubusercontent.com/buhanec/cloudify-chef-plugin/devel/plugin.yaml
+  - https://raw.githubusercontent.com/buhanec/cloudify-flexiant-plugin/3.3m2/plugin.yaml
 
 inputs:
   chef_version: {}
@@ -23,33 +23,6 @@ inputs:
   fco_key_uuid: {}
 
 node_types:
-  fco_instance:
-    derived_from: cloudify.flexiant.nodes.Server
-    properties:
-      auth:
-        default:
-          api_uuid: { get_input: fco_api_uuid }
-          password: { get_input: fco_password }
-          customer: { get_input: fco_customer }
-          url: { get_input: fco_url }
-          ca_cert: { get_input: fco_ca_cert }
-      image_uuid:
-        default: { get_input: fco_image }
-      net_uuid:
-        default: { get_input: fco_network }
-      server_type:
-        default: { get_input: fco_server_type }
-      cpu_count:
-        default: { get_input: fco_cpu_count }
-      ram_amount:
-        default: { get_input: fco_ram_amount }
-      key_uuid:
-        default: { get_input: fco_key_uuid }
-      cloudify_agent:
-        default:
-          wait_started_timeout: 60
-          wait_started_interval: 3
-
   chef_node:
     derived_from: cloudify.chef.nodes.ApplicationServer
     properties:
@@ -134,6 +107,7 @@ node_templates:
         - 'recipe[hadoop::zookeeper_server]'
         - 'recipe[hadoop::spark_master]'
         - 'recipe[apache_kafka::default]'
+        - 'recipe[collectd-ng::default]'
     interfaces:
       cloudify.interfaces.lifecycle:
         create: 'scripts/fix_fqdn.py'
@@ -155,6 +129,7 @@ node_templates:
         - 'recipe[hadoop::zookeeper_server]'
         - 'recipe[hadoop::spark_worker]'
         - 'recipe[apache_kafka::default]'
+        - 'recipe[collectd-ng::default]'
     interfaces:
       cloudify.interfaces.lifecycle:
         create: 'scripts/fix_fqdn.py'
@@ -178,14 +153,54 @@ node_templates:
         target: worker
 
   worker:
-    type: fco_instance
+    type: cloudify.flexiant.nodes.Server
     instances:
-      deploy: 10
+      deploy: 2
+    properties:
+      auth:
+        api_uuid: { get_input: fco_api_uuid }
+        password: { get_input: fco_password }
+        customer: { get_input: fco_customer }
+        url: { get_input: fco_url }
+        ca_cert: { get_input: fco_ca_cert }
+      image_uuid: { get_input: fco_image }
+      net_uuid: { get_input: fco_network }
+      server_type: { get_input: fco_server_type }
+      cpu_count: { get_input: fco_cpu_count }
+      ram_amount: { get_input: fco_ram_amount }
+      key_uuid: { get_input: fco_key_uuid }
+      cloudify_agent:
+        wait_started_timeout: 60
+        wait_started_interval: 3
 
   master:
-    type: fco_instance
+    type: cloudify.flexiant.nodes.Server
+    properties:
+      auth:
+        api_uuid: { get_input: fco_api_uuid }
+        password: { get_input: fco_password }
+        customer: { get_input: fco_customer }
+        url: { get_input: fco_url }
+        ca_cert: { get_input: fco_ca_cert }
+      image_uuid: { get_input: fco_image }
+      net_uuid: { get_input: fco_network }
+      server_type: { get_input: fco_server_type }
+      cpu_count: { get_input: fco_cpu_count }
+      ram_amount: { get_input: fco_ram_amount }
+      key_uuid: { get_input: fco_key_uuid }
+      cloudify_agent:
+        wait_started_timeout: 60
+        wait_started_interval: 3
 
 outputs:
+  mapred_jobhistory:
+    value: { get_attribute: [master_stack, chef_attributes, hadoop, mapred_site, mapreduce.jobhistory.address] }
+  mapred_jobhistory_webui:
+    value: { get_attribute: [master_stack, chef_attributes, hadoop, mapred_site, mapreduce.jobhistory.webapp.address] }
+  mapred_job_tracker:
+    value: { get_attribute: [master_stack, chef_attributes, hadoop, mapred_site, mapred.job.tracker] }
+  spark_master_ip:
+    value: { get_attribute: [master_stack, chef_attributes, spark, spark_env, spark_master_ip] }
   master_fqdn:
     description: 'Master FQDN'
     value: { get_attribute: [config, master_fqdn] }
