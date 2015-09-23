@@ -1,7 +1,12 @@
-Cloudify Oryx2 Flexiant Blueprint
-=================================
+Cloudify Oryx2 Blueprint
+========================
 
-An example draft of an Oryx2 blueprint, making used of the [Cloudify Flexiant Plugin](https://github.com/buhanec/cloudify-flexiant-plugin). Additionally it requires the modified [Chef Plugin with templating](https://github.com/buhanec/cloudify-chef-plugin).
+This work has received funding from the European Union's Horizon 2020 research and innovation programme project [DICE](http://www.dice-h2020.eu/) under grant agreement No. 644869.
+
+About
+-----
+
+An example draft of an Oryx2 blueprint, making used of the [Cloudify Flexiant Plugin](https://github.com/dice-project/cloudify-flexiant-plugin). Additionally it requires the modified [Chef Plugin with templating](https://github.com/dice-project/cloudify-chef-plugin).
 
 Serves to automatically set up the entire stack required for Oryx2, and Oryx2 itself, as well as a general template for any complex Chef-based future blueprints.
 
