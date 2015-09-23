@@ -3,6 +3,7 @@
 from cloudify import ctx
 from cloudify.exceptions import NonRecoverableError
 from subprocess import check_output, CalledProcessError
+from socket import gethostname
 
 
 def do(*args, **kwargs):
@@ -21,6 +22,6 @@ def sudo(*args, **kwargs):
 
 
 ctx.logger.info("[fix_fqdn] FQDN")
-ctx.download_resource_and_render('templates/hosts', '/tmp/hosts')
+ctx.download_resource_and_render('templates/hosts', '/tmp/hosts', {'hostname': gethostname()})
 
 sudo('mv', '/tmp/hosts', '/etc/hosts')
